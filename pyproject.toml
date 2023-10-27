@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pykosinus"
+authors = [{ name = "Otoklix", email = "engineering@otoklix.com" }]
+classifiers = [
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.8",
+]
+description = "Simple Text similarity python"
+dynamic = ["version", "dependencies"]
+keywords = ["pykosinus", "cosine similarity", "text similarity", "python text similarity"]
+readme = "README.md"
+requires-python = ">=3.8.17"
+
+[tool.setuptools.dynamic]
+version = {attr = "pykosinus.VERSION"}
+dependencies = {file = ["pykosinus/requirements.txt"]}
+
+[tool.setuptools.packages.find]
+exclude = ["tests*", "example*"]
