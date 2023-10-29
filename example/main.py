@@ -1,68 +1,25 @@
 import json
-
+import urllib.request
+import urllib.parse
+from uuid import uuid4
 from pykosinus import Content
 from pykosinus.lib.scoring import CosineSimilarity
 
+req = urllib.request.Request('https://gist.githubusercontent.com/ruriazz/90492766f536d807de69bff1097e1edd/raw/a0ddac05cbaafff947d1e38d316bd359b305c90d/ps2-games.txt')
+response = urllib.request.urlopen(req)
+ps2_games = response.read().decode('utf-8').split(';')
+
 contents = [
-    Content(
-        content="Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
-        identifier="blog-1",
-        section="blog_title",
-    ),
-    Content(
-        content="Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
-        identifier="blog-2",
-        section="blog_title",
-    ),
-    Content(
-        content="Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.",
-        identifier="blog-3",
-        section="blog_title",
-    ),
-    Content(
-        content="Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.",
-        identifier="blog-4",
-        section="blog_title",
-    ),
-    Content(
-        content="Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.",
-        identifier="blog-5",
-        section="blog_title",
-    ),
-    Content(
-        content="Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
-        identifier="blog-6",
-        section="blog_title",
-    ),
-    Content(
-        content="Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
-        identifier="blog-7",
-        section="blog_title",
-    ),
-    Content(
-        content="Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.",
-        identifier="blog-8",
-        section="blog_title",
-    ),
-    Content(
-        content="Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.",
-        identifier="blog-9",
-        section="blog_title",
-    ),
-    Content(
-        content="Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.",
-        identifier="blog-10",
-        section="blog_title",
-    ),
+    Content(identifier=str(uuid4()), content=word, section='game-title') for word in ps2_games
 ]
 
 similarity = (
-    CosineSimilarity(collection_name="example")
-    .with_contents(contents=contents)
+    CosineSimilarity(collection_name="ps2-games")
+    .push_contents(contents=contents)
     .initialize()
 )
 
 while True:
-    if keyword := input("keyword: "):
-        results = similarity.search(keyword=keyword, threshold=0.2)
-        print(json.dumps([i.dict() for i in results], indent=3))
+    if keyword := input("keyword for search ps2-games: "):
+        results = similarity.search(keyword=keyword, threshold=0.4)
+        print(json.dumps([i.model_dump() for i in results], indent=3))
