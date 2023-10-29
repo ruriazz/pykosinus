@@ -24,7 +24,7 @@ from pykosinus.lib.scoring import CosineSimilarity
 similarity = CosineSimilarity(collection_name)
 ```
 
-- Set the contents to be searched using the **with_contents** method, passing a list of **Content** objects:
+- Set the contents to be searched using the **push_contents** method, passing a list of **Content** objects:
 ```python
 contents = [
     Content(
@@ -44,7 +44,7 @@ contents = [
     ),
     # Add more contents as needed
 ]
-similarity.with_contents(contents)
+similarity.push_contents(contents)
 ```
 
 - Initialize the similarity search by calling the **initialize** method:
@@ -75,7 +75,7 @@ pykosinus welcomes contributions from the community. If you would like to contri
 - Submit a pull request to the master pykosinus repository, explaining the changes you have made.
 
 ## Versioning
-pykosinus is currently in version 0.0.1. We encourage continuous development and contributions from other contributors to improve and expand the library.
+pykosinus is currently in version 0.0.2. We encourage continuous development and contributions from other contributors to improve and expand the library.
 
 ## License
 pykosinus is released under the [MIT License](https://opensource.org/licenses/MIT).

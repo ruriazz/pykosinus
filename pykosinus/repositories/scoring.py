@@ -1,7 +1,5 @@
-from typing import List, Optional
-
 import peewee as pw
-
+from typing import List, Optional
 from pykosinus import Conf
 
 db = pw.SqliteDatabase(None)
