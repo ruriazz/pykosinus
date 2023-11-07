@@ -1,5 +1,7 @@
-import peewee as pw
 from typing import List, Optional
+
+import peewee as pw
+
 from pykosinus import Conf
 
 db = pw.SqliteDatabase(None)
@@ -82,6 +84,10 @@ def create_processed_data(base_data: BaseData, content: str) -> None:
 
 def get_processed_data_by_id(_id: int) -> ProcessedData:
     return ProcessedData.get_by_id(_id)
+
+
+def get_processed_data_by_content(content: str) -> List[ProcessedData]:
+    return list(ProcessedData.select().where(ProcessedData.content == content))
 
 
 def get_all_processed_data() -> List[ProcessedData]:

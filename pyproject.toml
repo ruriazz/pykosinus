@@ -22,3 +22,7 @@ dependencies = {file = ["pykosinus/requirements.txt"]}
 
 [tool.setuptools.packages.find]
 exclude = ["tests*", "example*"]
+
+[project.urls]
+"Homepage" = "https://github.com/ruriazz/pykosinus"
+"Bug Tracker" = "https://github.com/ruriazz/pykosinus/issues"
