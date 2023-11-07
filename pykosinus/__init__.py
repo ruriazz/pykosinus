@@ -1,9 +1,10 @@
-VERSION = "0.0.2"
+VERSION = "0.0.3"
 
 import hashlib
 import os
 import threading
 from typing import Any, Callable, Iterable, Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -18,10 +19,12 @@ class Conf:
     model_location: str
     cosine_index_location: str
     sparse_index_location: str
+    pickle_index_location: str
     tmp_dictionary_location: str
     tmp_model_location: str
     tmp_cosine_index_location: str
     tmp_sparse_index_location: str
+    tmp_pickle_index_location: str
 
     @staticmethod
     def get_config(
@@ -36,20 +39,19 @@ class Conf:
 
         conf.batch_size = base_batch_size or 500
         conf.collection = collection_name
-        conf.sqlite_location = os.path.join(
-            conf.base_path, conf.storage, "model.sql"
-        )
+        conf.sqlite_location = os.path.join(conf.base_path, conf.storage, "model.sql")
         conf.dictionary_location = os.path.join(
             conf.base_path, conf.storage, "model.dict"
         )
-        conf.model_location = os.path.join(
-            conf.base_path, conf.storage, "model.model"
-        )
+        conf.model_location = os.path.join(conf.base_path, conf.storage, "model.model")
         conf.cosine_index_location = os.path.join(
             conf.base_path, conf.storage, "model.cosine.index"
         )
         conf.sparse_index_location = os.path.join(
             conf.base_path, conf.storage, "model.sparse.index"
+        )
+        conf.pickle_index_location = os.path.join(
+            conf.base_path, conf.storage, "model.pickle"
         )
         conf.tmp_dictionary_location = os.path.join(
             conf.base_path, conf.storage, ".tmp.dict"
@@ -62,6 +64,9 @@ class Conf:
         )
         conf.tmp_sparse_index_location = os.path.join(
             conf.base_path, conf.storage, ".tmp.sparse.index"
+        )
+        conf.tmp_pickle_index_location = os.path.join(
+            conf.base_path, conf.storage, ".tmp.model.pickle"
         )
 
         return conf
@@ -80,7 +85,14 @@ class ScoringResult(BaseModel):
     similar: str
     score: float
 
+
 class Task:
-    def __init__(self, target: Callable[..., object], args: Iterable[Any] = (), name: Optional[str] = None, *_args, **_kwargs) -> None:
-        threading.Thread(target=target, args=args, name=name, *_args, **_kwargs) \
-            .start()
+    def __init__(
+        self,
+        target: Callable[..., object],
+        args: Iterable[Any] = (),
+        name: Optional[str] = None,
+        *_args,
+        **_kwargs,
+    ) -> None:
+        threading.Thread(target=target, args=args, name=name, *_args, **_kwargs).start()

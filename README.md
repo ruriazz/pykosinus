@@ -16,12 +16,12 @@ To use pykosinus in your Python project, you can follow these steps:
 - Import the necessary modules and classes:
 ```python
 from pykosinus import Content
-from pykosinus.lib.scoring import CosineSimilarity
+from pykosinus.lib.scoring import TextScoring
 ```
 
-- Create an instance of the **CosineSimilarity** class, providing the collection name as a parameter:
+- Create an instance of the **TextScoring** class, providing the collection name as a parameter:
 ```python
-similarity = CosineSimilarity(collection_name)
+similarity = TextScoring(collection_name)
 ```
 
 - Set the contents to be searched using the **push_contents** method, passing a list of **Content** objects:
@@ -68,14 +68,14 @@ for result in results:
 
 ## Contributing
 pykosinus welcomes contributions from the community. If you would like to contribute to the library, please follow these steps:
-- Fork the pykosinus repository on GitHub.
+- Fork the pykosinus repository on [**GitHub**](https://github.com/ruriazz/pykosinus).
 - Create a new branch for your feature or bug fix.
 - Make your changes and commit them with descriptive commit messages.
 - Push your changes to your forked repository.
 - Submit a pull request to the master pykosinus repository, explaining the changes you have made.
 
 ## Versioning
-pykosinus is currently in version 0.0.2. We encourage continuous development and contributions from other contributors to improve and expand the library.
+pykosinus is currently in version 0.0.3. We encourage continuous development and contributions from other contributors to improve and expand the library.
 
 ## License
 pykosinus is released under the [MIT License](https://opensource.org/licenses/MIT).
