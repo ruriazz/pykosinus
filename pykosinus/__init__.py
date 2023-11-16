@@ -1,4 +1,4 @@
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 
 import hashlib
 import os
@@ -33,40 +33,41 @@ class Conf:
         collection_hash = hashlib.md5(collection_name.encode()).hexdigest()
         conf = Conf()
 
-        conf.storage = os.path.join(conf.base_path, f"storage/{collection_hash}")
-        os.makedirs(os.path.join(conf.base_path, "storage"), exist_ok=True)
+        base_path = conf.base_path
+        if base_path_env := os.getenv("PYKOSINUS_BASE_PATH"):
+            base_path = os.path.join(os.getcwd(), base_path_env)
+            os.makedirs(base_path, exist_ok=True)
+
+        conf.storage = os.path.join(base_path, f"storage/{collection_hash}")
+        os.makedirs(os.path.join(base_path, "storage"), exist_ok=True)
         os.makedirs(conf.storage, exist_ok=True)
 
         conf.batch_size = base_batch_size or 500
         conf.collection = collection_name
-        conf.sqlite_location = os.path.join(conf.base_path, conf.storage, "model.sql")
-        conf.dictionary_location = os.path.join(
-            conf.base_path, conf.storage, "model.dict"
-        )
-        conf.model_location = os.path.join(conf.base_path, conf.storage, "model.model")
+        conf.sqlite_location = os.path.join(base_path, conf.storage, "model.sql")
+        conf.dictionary_location = os.path.join(base_path, conf.storage, "model.dict")
+        conf.model_location = os.path.join(base_path, conf.storage, "model.model")
         conf.cosine_index_location = os.path.join(
-            conf.base_path, conf.storage, "model.cosine.index"
+            base_path, conf.storage, "model.cosine.index"
         )
         conf.sparse_index_location = os.path.join(
-            conf.base_path, conf.storage, "model.sparse.index"
+            base_path, conf.storage, "model.sparse.index"
         )
         conf.pickle_index_location = os.path.join(
-            conf.base_path, conf.storage, "model.pickle"
+            base_path, conf.storage, "model.pickle"
         )
         conf.tmp_dictionary_location = os.path.join(
-            conf.base_path, conf.storage, ".tmp.dict"
+            base_path, conf.storage, ".tmp.dict"
         )
-        conf.tmp_model_location = os.path.join(
-            conf.base_path, conf.storage, ".tmp.model"
-        )
+        conf.tmp_model_location = os.path.join(base_path, conf.storage, ".tmp.model")
         conf.tmp_cosine_index_location = os.path.join(
-            conf.base_path, conf.storage, ".tmp.cosine.index"
+            base_path, conf.storage, ".tmp.cosine.index"
         )
         conf.tmp_sparse_index_location = os.path.join(
-            conf.base_path, conf.storage, ".tmp.sparse.index"
+            base_path, conf.storage, ".tmp.sparse.index"
         )
         conf.tmp_pickle_index_location = os.path.join(
-            conf.base_path, conf.storage, ".tmp.model.pickle"
+            base_path, conf.storage, ".tmp.model.pickle"
         )
 
         return conf
