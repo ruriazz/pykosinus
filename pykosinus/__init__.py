@@ -1,11 +1,13 @@
-VERSION = "0.1.1"
+VERSION = "0.1.4"
 
 import hashlib
+import logging
 import os
-import threading
 from typing import Any, Callable, Iterable, Optional
 
 from pydantic import BaseModel, Field
+
+log = logging.getLogger("pykosinus-0.1.4")
 
 
 class Conf:
@@ -93,7 +95,13 @@ class Task:
         target: Callable[..., object],
         args: Iterable[Any] = (),
         name: Optional[str] = None,
-        *_args,
         **_kwargs,
     ) -> None:
-        threading.Thread(target=target, args=args, name=name, *_args, **_kwargs).start()
+        # threading.Thread(target=target, args=args, name=name, *_args, **_kwargs).start()
+
+        if name:
+            log.info(f"New {name} pykosinus task received.")
+        else:
+            log.info("New default pykosinus task received.")
+
+        target(*args, **_kwargs)

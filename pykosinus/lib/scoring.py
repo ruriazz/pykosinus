@@ -9,7 +9,7 @@ from typing import Any, Generator, List, Optional, Tuple
 from fuzzywuzzy import fuzz
 from gensim import corpora, models, similarities
 
-from pykosinus import Conf, Content, ScoringResult, Task
+from pykosinus import Conf, Content, ScoringResult, Task, log
 from pykosinus.repositories import scoring as rep
 
 
@@ -90,7 +90,7 @@ class _CosineSimilarity(__BaseScoring):
                     id_scores[result["identifier"]] = result
 
         results = [ScoringResult(**result) for result in list(id_scores.values())]
-        print(f"got {len(results)} similar contents in {time.time() - st} seconds.")
+        log.info(f"got {len(results)} similar contents in {time.time() - st} seconds.")
         return sorted(results, key=lambda obj: obj.score, reverse=True)
 
     def _create_index(
@@ -149,8 +149,10 @@ class _CosineSimilarity(__BaseScoring):
 
 
 class _FuzzyMatch(__BaseScoring):
-    def search(self, keyword: str, threshold: float = 0.5) -> List[ScoringResult]:
-        if threshold < 0.7:
+    def search(
+        self, keyword: str, threshold: float = 0.5, normalize_threshold: bool = True
+    ) -> List[ScoringResult]:
+        if normalize_threshold and threshold < 0.7:
             threshold += 0.35
 
         st = time.time()
@@ -177,7 +179,7 @@ class _FuzzyMatch(__BaseScoring):
                         id_scores[result["identifier"]] = result
 
         results = [ScoringResult(**result) for result in list(id_scores.values())]
-        print(f"got {len(results)} similar contents in {time.time() - st} seconds.")
+        log.info(f"got {len(results)} similar contents in {time.time() - st} seconds.")
         return sorted(results, key=lambda obj: obj.score, reverse=True)
 
     def _create_index(self) -> List[str]:
@@ -235,25 +237,28 @@ class TextScoring(__BaseScoring):
         self._contents += contents
         return self
 
-    def initialize(self) -> "TextScoring":
+    def initialize(self, rebuild: bool = True) -> "TextScoring":
         rep.init_database(self.conf.sqlite_location)
         self.indexed()
 
-        # init contents
-        Task(target=self._prepare_contents, args=(self._contents,))
+        if rebuild or not self._index_ready:
+            # init contents
+            Task(target=self._prepare_contents, args=(self._contents,))
 
-        # init cosine similarity model
-        Task(target=self.cosine_similarity._create_index)
+            # init cosine similarity model
+            Task(target=self.cosine_similarity._create_index)
 
-        # Init fuzzy match model
-        Task(target=self.fuzzy_match._create_index)
+            # Init fuzzy match model
+            Task(target=self.fuzzy_match._create_index)
 
         return self
 
-    def search(self, keyword: str, threshold: float = 0.5) -> List[ScoringResult]:
+    def search(
+        self, keyword: str, threshold: float = 0.5, normalize_threshold: bool = True
+    ) -> List[ScoringResult]:
         results = self.cosine_similarity.search(keyword, threshold)
         if len(keyword.strip().split()) == 1:
-            results += self.fuzzy_match.search(keyword, threshold)
+            results += self.fuzzy_match.search(keyword, threshold, normalize_threshold)
         unique_results = []
         seen_identifiers = set()
 
@@ -274,7 +279,7 @@ class TextScoring(__BaseScoring):
                     content.content, content.identifier, content.section
                 )
 
-        print(
+        log.info(
             f"total '{self.conf.collection}' {rep.count_total_base_data()} base data, finished in {round(time.time() - st, 3)} seconds."
         )
 
@@ -290,7 +295,16 @@ class TextScoring(__BaseScoring):
                 clear_content = re.sub(r"[^\w\s]", "", content)
                 rep.create_processed_data(base_data=data, content=clear_content)
 
-        print(
+        log.info(
             f"total '{self.conf.collection}' {rep.count_total_processed_data()} processed data, finished in {round(time.time() - st, 3)} seconds."
         )
         self.db_prepared()
+
+    @property
+    def _index_ready(self) -> bool:
+        return (
+            path.exists(self.conf.cosine_index_location)
+            and path.exists(self.conf.dictionary_location)
+            and path.exists(self.conf.model_location)
+            and path.exists(self.conf.pickle_index_location)
+        )
