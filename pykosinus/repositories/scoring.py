@@ -51,10 +51,12 @@ def base_data_exists(
 
 def create_base_data(
     content: str, identifier: Optional[str] = None, section: Optional[str] = None
-) -> None:
+) -> Optional[BaseData]:
     if not base_data_exists(content, identifier, section):
         data = BaseData(identifier=identifier, content=content, section=section)
         data.save()
+
+        return data
 
 
 def create_many_base_data(data: List[dict]) -> None:
