@@ -10,6 +10,43 @@ To install pykosinus, make sure you have Python 3.8.17 or higher installed. Then
 pip install pykosinus
 ```
 
+## Additional Library for Mac Users
+If you are using pykosinus on a Mac, you may need to install the GCC compiler to enable certain features. GCC is a widely used compiler for various programming languages.
+
+To install GCC on macOS, you can use Homebrew, a popular package manager for macOS. Follow these steps to install GCC using Homebrew:
+
+- Open a terminal window.
+- Install Homebrew by running the following command:
+```sh
+[/bin/bash](VALID_FILE) -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+- Install GCC by running the following command:
+```sh
+brew install gcc
+```
+- Verify the installation by running the following command:
+```sh
+gcc --version
+```
+- Set gfortran
+```sh
+export FC=gfortran
+```
+
+- Verify gfortran installation
+```sh
+gfortran --version
+```
+
+- Install openblas and set pkg config openblas
+```sh
+brew install openblas
+```
+```sh
+export PKG_CONFIG_PATH="/opt/homebrew/opt/openblas/lib/pkgconfig"
+```
+
+
 ## Usage
 To use pykosinus in your Python project, you can follow these steps:
 
@@ -75,7 +112,7 @@ pykosinus welcomes contributions from the community. If you would like to contri
 - Submit a pull request to the master pykosinus repository, explaining the changes you have made.
 
 ## Versioning
-pykosinus is currently in version 0.1.1. We encourage continuous development and contributions from other contributors to improve and expand the library.
+pykosinus is currently in version 0.1.4. We encourage continuous development and contributions from other contributors to improve and expand the library.
 
 ## License
 pykosinus is released under the [MIT License](https://opensource.org/licenses/MIT).
