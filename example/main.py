@@ -24,7 +24,7 @@ contents = [
 similarity = (
     TextScoring(collection_name="ps2-games")
     .push_contents(contents=contents)
-    .initialize()
+    .initialize(True)
 )
 
 while True:

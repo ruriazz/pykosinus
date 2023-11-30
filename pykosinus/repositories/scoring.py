@@ -1,3 +1,4 @@
+from os import path, remove
 from typing import List, Optional
 
 import peewee as pw
@@ -25,7 +26,10 @@ class ProcessedData(BaseModel):
     content = pw.TextField()
 
 
-def init_database(dbname: str) -> None:
+def init_database(dbname: str, recreate_on_exists: bool = False) -> None:
+    if recreate_on_exists and path.exists(dbname):
+        remove(dbname)
+
     db.init(dbname)
     db.connect(reuse_if_open=True)
     db.create_tables([BaseData, ProcessedData])
@@ -51,6 +55,11 @@ def create_base_data(
     if not base_data_exists(content, identifier, section):
         data = BaseData(identifier=identifier, content=content, section=section)
         data.save()
+
+
+def create_many_base_data(data: List[dict]) -> None:
+    with db.atomic():
+        BaseData.insert_many(data).execute()
 
 
 def get_all_base_data(
@@ -80,6 +89,11 @@ def create_processed_data(base_data: BaseData, content: str) -> None:
     if not processed_data_exists(base_data, content):
         data = ProcessedData(base_data=base_data, content=content)
         data.save()
+
+
+def create_many_processed_data(data: List[dict]) -> None:
+    with db.atomic():
+        ProcessedData.insert_many(data).execute()
 
 
 def get_processed_data_by_id(_id: int) -> ProcessedData:

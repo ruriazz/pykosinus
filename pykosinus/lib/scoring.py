@@ -96,6 +96,7 @@ class _CosineSimilarity(__BaseScoring):
     def _create_index(
         self,
     ) -> Tuple[corpora.Dictionary, models.TfidfModel, similarities.Similarity]:
+        st = time.time()
         if not self.is_db_prepared:
             time.sleep(3)
             return self._create_index()
@@ -129,6 +130,8 @@ class _CosineSimilarity(__BaseScoring):
             self.partial_indexed(False)
         else:
             self.partial_indexed()
+
+        log.info(f"cosine similarity model finished in {time.time() - st}")
 
         return dictionary, tfidf, cosine
 
@@ -183,6 +186,7 @@ class _FuzzyMatch(__BaseScoring):
         return sorted(results, key=lambda obj: obj.score, reverse=True)
 
     def _create_index(self) -> List[str]:
+        st = time.time()
         if not self.is_db_prepared:
             time.sleep(3)
             return self._create_index()
@@ -205,6 +209,8 @@ class _FuzzyMatch(__BaseScoring):
             self.partial_indexed(False)
         else:
             self.partial_indexed()
+
+        log.info(f"fuzzy match model finished in {time.time() - st}")
 
         return objects_list
 
@@ -237,21 +243,43 @@ class TextScoring(__BaseScoring):
         self._contents += contents
         return self
 
-    def initialize(self, rebuild: bool = True) -> "TextScoring":
-        rep.init_database(self.conf.sqlite_location)
+    def initialize(self, rebuild: bool = False) -> "TextScoring":
+        # sourcery skip: class-extract-method
+        rep.init_database(self.conf.sqlite_location, rebuild)
         self.indexed()
 
         if rebuild or not self._index_ready:
             # init contents
-            Task(target=self._prepare_contents, args=(self._contents,))
+            Task(
+                target=self._prepare_contents,
+                args=(self._contents, rebuild),
+                name="<prepare contents>",
+            )
 
             # init cosine similarity model
-            Task(target=self.cosine_similarity._create_index)
+            Task(
+                target=self.cosine_similarity._create_index,
+                name="<build cosine similarity model>",
+            )
 
             # Init fuzzy match model
-            Task(target=self.fuzzy_match._create_index)
+            Task(
+                target=self.fuzzy_match._create_index, name="<build fuzzy match model>"
+            )
 
         return self
+
+    def update(self, content: List[Content]) -> None:
+        Task(
+            target=self._prepare_contents,
+            args=(content, False),
+            name="<update contents>",
+        )
+        Task(
+            target=self.cosine_similarity._create_index,
+            name="<build cosine similarity model>",
+        )
+        Task(target=self.fuzzy_match._create_index, name="<build fuzzy match model>")
 
     def search(
         self, keyword: str, threshold: float = 0.5, normalize_threshold: bool = True
@@ -269,15 +297,26 @@ class TextScoring(__BaseScoring):
 
         return sorted(unique_results, key=lambda obj: obj.score, reverse=True)
 
-    def _prepare_contents(self, contents: List[Content]) -> None:
+    def _prepare_contents(self, contents: List[Content], many: bool = False) -> None:
         self.db_prepared(False)
 
         st = time.time()
         for contents_batch in self._batch_generator(contents, self.conf.batch_size):
-            for content in contents_batch:
-                rep.create_base_data(
-                    content.content, content.identifier, content.section
-                )
+            if many:
+                bds = [
+                    dict(
+                        identifier=content.identifier,
+                        content=content.content,
+                        section=content.section,
+                    )
+                    for content in contents_batch
+                ]
+                rep.create_many_base_data(bds)
+            else:
+                for content in contents_batch:
+                    rep.create_base_data(
+                        content.content, content.identifier, content.section
+                    )
 
         log.info(
             f"total '{self.conf.collection}' {rep.count_total_base_data()} base data, finished in {round(time.time() - st, 3)} seconds."
@@ -288,12 +327,21 @@ class TextScoring(__BaseScoring):
             base_data_batch = rep.get_all_base_data(
                 offset=offset, size=self.conf.batch_size
             )
-            for data in base_data_batch:
-                content = str(data.content).lower()
-                rep.create_processed_data(base_data=data, content=content)
 
-                clear_content = re.sub(r"[^\w\s]", "", content)
-                rep.create_processed_data(base_data=data, content=clear_content)
+            if many:
+                pcsd = []
+                for data in base_data_batch:
+                    pcsd.append(dict(base_data=data, content=str(data.content).lower()))
+                    clear_content = re.sub(r"[^\w\s]", "", str(data.content).lower())
+                    pcsd.append(dict(base_data=data, content=clear_content))
+                rep.create_many_processed_data(pcsd)
+            else:
+                for data in base_data_batch:
+                    content = str(data.content).lower()
+                    rep.create_processed_data(base_data=data, content=content)
+
+                    clear_content = re.sub(r"[^\w\s]", "", content)
+                    rep.create_processed_data(base_data=data, content=clear_content)
 
         log.info(
             f"total '{self.conf.collection}' {rep.count_total_processed_data()} processed data, finished in {round(time.time() - st, 3)} seconds."
@@ -303,7 +351,8 @@ class TextScoring(__BaseScoring):
     @property
     def _index_ready(self) -> bool:
         return (
-            path.exists(self.conf.cosine_index_location)
+            path.exists(self.conf.sqlite_location)
+            and path.exists(self.conf.cosine_index_location)
             and path.exists(self.conf.dictionary_location)
             and path.exists(self.conf.model_location)
             and path.exists(self.conf.pickle_index_location)
