@@ -39,6 +39,7 @@ ENV/
 *.coverage
 .coverage
 htmlcov/
+**.DS_Store
 
 # Dependency directories
 storage/
