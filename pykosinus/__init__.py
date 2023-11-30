@@ -1,4 +1,4 @@
-VERSION = "0.1.5"
+VERSION = "0.1.6"
 
 import hashlib
 import logging
@@ -29,9 +29,7 @@ class Conf:
     tmp_pickle_index_location: str
 
     @staticmethod
-    def get_config(
-        collection_name: str, base_batch_size: Optional[int] = 500
-    ) -> "Conf":
+    def get_config(collection_name: str, base_batch_size: Optional[int] = 50) -> "Conf":
         collection_hash = hashlib.md5(collection_name.encode()).hexdigest()
         conf = Conf()
 
