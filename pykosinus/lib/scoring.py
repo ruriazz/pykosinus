@@ -9,7 +9,6 @@ from typing import Any, Generator, List, Optional, Tuple
 
 from fuzzywuzzy import fuzz
 from gensim import corpora, models, similarities
-from tqdm.auto import tqdm
 
 from pykosinus import Conf, Content, ScoringResult, Task, log
 from pykosinus.repositories import scoring as rep
@@ -99,7 +98,7 @@ class _CosineSimilarity(__BaseScoring):
         self,
     ) -> Tuple[corpora.Dictionary, models.TfidfModel, similarities.Similarity]:
         st = time.time()
-        pb = tqdm(total=10)
+        log.info("cosine similarity model started.")
         if not self.is_db_prepared:
             time.sleep(3)
             return self._create_index()
@@ -107,15 +106,11 @@ class _CosineSimilarity(__BaseScoring):
         self.indexed()
         objects_generator = (str(i.content) for i in rep.get_all_processed_data())
         objects_list = list(objects_generator)
-        pb.update()  # 10%
 
         dictionary = corpora.Dictionary((text.split() for text in objects_list))
-        pb.update()  # 20%
         corpus = [dictionary.doc2bow(text.split()) for text in objects_list]
-        pb.update()  # 30%
 
         tfidf = models.TfidfModel(corpus)
-        pb.update()  # 40%
 
         cosine = similarities.Similarity(
             None, tfidf[corpus], num_features=len(dictionary)
@@ -128,21 +123,16 @@ class _CosineSimilarity(__BaseScoring):
         )
 
         dictionary.save(tmp_dictionary_location)
-        pb.update()  # 50%
         tfidf.save(tmp_model_location)
-        pb.update()  # 60%
         cosine.save(tmp_cosine_index_location)
-        pb.update()  # 70%
 
         copy2(tmp_dictionary_location, self.conf.dictionary_location)
         copy2(tmp_model_location, self.conf.model_location)
         copy2(tmp_cosine_index_location, self.conf.cosine_index_location)
-        pb.update()  # 80%
 
         remove(tmp_dictionary_location)
         remove(tmp_model_location)
         remove(tmp_cosine_index_location)
-        pb.update()  # 90%
 
         if self.is_partial_indexed:
             self.indexed(False)
@@ -150,8 +140,6 @@ class _CosineSimilarity(__BaseScoring):
         else:
             self.partial_indexed()
 
-        pb.update()  # 100%
-        pb.close()
         log.info(f"cosine similarity model finished in {time.time() - st}")
 
         return dictionary, tfidf, cosine
@@ -207,12 +195,11 @@ class _FuzzyMatch(__BaseScoring):
         return sorted(results, key=lambda obj: obj.score, reverse=True)
 
     def _create_index(self) -> List[str]:
+        log.info("fuzzy match model started.")
         st = time.time()
-        pb = tqdm(total=4)
         if not self.is_db_prepared:
             time.sleep(3)
             return self._create_index()
-        pb.update()
 
         self.indexed()
         objects_generator = (
@@ -221,14 +208,12 @@ class _FuzzyMatch(__BaseScoring):
             if len(str(i.content).strip().split()) == 1
         )
         objects_list = list(objects_generator)
-        pb.update()
 
         tmp_model = f"{self.conf.tmp_pickle_index_location}_{uuid.uuid4()}"
         with open(tmp_model, "wb") as f:
             pickle.dump(objects_list, f)
             copy2(tmp_model, self.conf.pickle_index_location)
             remove(tmp_model)
-            pb.update()
 
         if self.is_partial_indexed:
             self.indexed(False)
@@ -236,8 +221,6 @@ class _FuzzyMatch(__BaseScoring):
         else:
             self.partial_indexed()
 
-        pb.update()
-        pb.close()
         log.info(f"fuzzy match model finished in {time.time() - st}")
 
         return objects_list
@@ -332,9 +315,8 @@ class TextScoring(__BaseScoring):
         return sorted(unique_results, key=lambda obj: obj.score, reverse=True)
 
     def _prepare_contents(self, contents: List[Content], many: bool = False) -> None:
+        log.info("prepare content started.")
         self.db_prepared(False)
-
-        pb = tqdm(total=len(contents), position=0)
 
         is_update = False
         updated = []
@@ -351,7 +333,6 @@ class TextScoring(__BaseScoring):
                     for content in contents_batch
                 ]
                 rep.create_many_base_data(bds)
-                pb.update(len(contents_batch))
             else:
                 for content in contents_batch:
                     if data := rep.create_base_data(
@@ -359,9 +340,7 @@ class TextScoring(__BaseScoring):
                     ):
                         is_update = True
                         updated.append(data)
-                    pb.update()
 
-        pb.close()
         log.info(
             f"total '{self.conf.collection}' {rep.count_total_base_data()} base data, finished in {round(time.time() - st, 3)} seconds."
         )
@@ -369,7 +348,6 @@ class TextScoring(__BaseScoring):
         st = time.time()
         if not is_update:
             total_base_data = rep.count_total_base_data()
-            pb = tqdm(total=total_base_data)
             for offset in range(0, total_base_data, self.conf.batch_size):
                 base_data_batch = rep.get_all_base_data(
                     offset=offset, size=self.conf.batch_size
@@ -386,18 +364,14 @@ class TextScoring(__BaseScoring):
                         )
                         pcsd.append(dict(base_data=data, content=clear_content))
                     rep.create_many_processed_data(pcsd)
-                    pb.update(len(base_data_batch))
         else:
-            pb = tqdm(total=len(updated))
             for data in updated:
                 content = str(data.content).lower()
                 rep.create_processed_data(base_data=data, content=content)
 
                 clear_content = re.sub(r"[^\w\s]", "", content)
                 rep.create_processed_data(base_data=data, content=clear_content)
-                pb.update()
 
-        pb.close()
         log.info(
             f"total '{self.conf.collection}' {rep.count_total_processed_data()} processed data, finished in {round(time.time() - st, 3)} seconds."
         )
