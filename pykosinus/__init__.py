@@ -1,4 +1,4 @@
-VERSION = "0.1.7"
+VERSION = "0.2.0"
 
 import hashlib
 import logging
@@ -7,7 +7,14 @@ from typing import Any, Callable, Iterable, Optional
 
 from pydantic import BaseModel, Field
 
-log = logging.getLogger("pykosinus-0.1.4")
+log = logging.getLogger("pykosinus")
+
+stream_handler = logging.StreamHandler()
+stream_handler.setLevel(logging.DEBUG)
+formatter = logging.Formatter("[%(name)s][%(levelname)s] %(message)s")
+stream_handler.setFormatter(formatter)
+log.addHandler(stream_handler)
+log.setLevel(logging.DEBUG)
 
 
 class Conf:
@@ -18,15 +25,12 @@ class Conf:
     batch_size: int
     sqlite_location: str
     dictionary_location: str
+    score_contents: str
     model_location: str
     cosine_index_location: str
     sparse_index_location: str
     pickle_index_location: str
-    tmp_dictionary_location: str
-    tmp_model_location: str
-    tmp_cosine_index_location: str
-    tmp_sparse_index_location: str
-    tmp_pickle_index_location: str
+    spellchecker_dictionary: str
 
     @staticmethod
     def get_config(collection_name: str, base_batch_size: Optional[int] = 50) -> "Conf":
@@ -46,6 +50,7 @@ class Conf:
         conf.collection = collection_name
         conf.sqlite_location = os.path.join(base_path, conf.storage, "model.sql")
         conf.dictionary_location = os.path.join(base_path, conf.storage, "model.dict")
+        conf.score_contents = os.path.join(base_path, conf.storage, "model.contents")
         conf.model_location = os.path.join(base_path, conf.storage, "model.model")
         conf.cosine_index_location = os.path.join(
             base_path, conf.storage, "model.cosine.index"
@@ -56,18 +61,8 @@ class Conf:
         conf.pickle_index_location = os.path.join(
             base_path, conf.storage, "model.pickle"
         )
-        conf.tmp_dictionary_location = os.path.join(
-            base_path, conf.storage, ".tmp.dict"
-        )
-        conf.tmp_model_location = os.path.join(base_path, conf.storage, ".tmp.model")
-        conf.tmp_cosine_index_location = os.path.join(
-            base_path, conf.storage, ".tmp.cosine.index"
-        )
-        conf.tmp_sparse_index_location = os.path.join(
-            base_path, conf.storage, ".tmp.sparse.index"
-        )
-        conf.tmp_pickle_index_location = os.path.join(
-            base_path, conf.storage, ".tmp.model.pickle"
+        conf.spellchecker_dictionary = os.path.join(
+            base_path, conf.storage, "spell_dictionary.txt"
         )
 
         return conf
@@ -79,11 +74,11 @@ class Content(BaseModel):
     section: Optional[str] = Field(default=None)
 
 
-class ScoringResult(BaseModel):
+class ScoringContent(BaseModel):
     identifier: str
+    original: str
     content: str
     section: Optional[str] = Field(default=None)
-    similar: str
     score: float
 
 
@@ -103,3 +98,9 @@ class Task:
             log.info("New default pykosinus task received.")
 
         target(*args, **_kwargs)
+
+
+class Constant:
+    ALL_SPECIAL_CHAR_REGEX: str = r"[^\w\s]"
+    SPECIAL_CHAR_REGEX: str = r"[^\w\s/+\"<>=-]"
+    WHITESPACE_REPLACEMENT_REGEX: str = r"[-/]"

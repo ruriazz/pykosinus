@@ -112,7 +112,7 @@ pykosinus welcomes contributions from the community. If you would like to contri
 - Submit a pull request to the master pykosinus repository, explaining the changes you have made.
 
 ## Versioning
-pykosinus is currently in version 0.1.7. We encourage continuous development and contributions from other contributors to improve and expand the library.
+pykosinus is currently in version 0.2.0. We encourage continuous development and contributions from other contributors to improve and expand the library.
 
 ## License
 pykosinus is released under the [MIT License](https://opensource.org/licenses/MIT).

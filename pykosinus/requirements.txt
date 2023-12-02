@@ -1,5 +1,5 @@
 fuzzywuzzy==0.18.0
 gensim==4.3.2
-peewee==3.17.0
 pydantic
+pyspellchecker==0.7.2
 python-Levenshtein==0.23.0
