@@ -9,12 +9,13 @@ from pydantic import BaseModel, Field
 
 log = logging.getLogger("pykosinus")
 
-stream_handler = logging.StreamHandler()
-stream_handler.setLevel(logging.DEBUG)
-formatter = logging.Formatter("[%(name)s][%(levelname)s] %(message)s")
-stream_handler.setFormatter(formatter)
-log.addHandler(stream_handler)
-log.setLevel(logging.DEBUG)
+if (os.getenv("PYKOSINUS_DEBUG") or "false").lower() == "true":
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(logging.DEBUG)
+    formatter = logging.Formatter("[%(name)s][%(levelname)s] %(message)s")
+    stream_handler.setFormatter(formatter)
+    log.addHandler(stream_handler)
+    log.setLevel(logging.DEBUG)
 
 
 class Conf:
