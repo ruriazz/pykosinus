@@ -1,398 +1,88 @@
-import contextlib
-import pickle
-import re
 import time
-import uuid
-from os import path, remove
-from shutil import copy2
-from typing import Any, Generator, List, Optional, Tuple
+from typing import List, Optional
 
-from fuzzywuzzy import fuzz
-from gensim import corpora, models, similarities
-
-from pykosinus import Conf, Content, ScoringResult, Task, log
-from pykosinus.repositories import scoring as rep
+from pykosinus import Content, ScoringContent, log
+from pykosinus.lib import BaseScoring
+from pykosinus.lib.cosine_similarity import CosineSimilarity
+from pykosinus.lib.fuzzy_match import FuzzyMatch
+from pykosinus.lib.spellcheck import SpellCheck
 
 
-class __BaseScoring:
-    conf: Conf
-
-    def __init__(self, collection_name: str, batch_length: Optional[int] = 500) -> None:
-        self.conf = Conf.get_config(collection_name, batch_length)
-
-    def indexed(self, start: bool = True) -> None:
-        if start:
-            open(path.join(self.conf.storage, ".indexed"), "w").write("")
-            return
-        with contextlib.suppress(FileNotFoundError):
-            remove(path.join(self.conf.storage, ".indexed"))
-
-    def db_prepared(self, start: bool = True) -> None:
-        if start:
-            open(path.join(self.conf.storage, ".dbprepared"), "w").write("")
-            return
-        with contextlib.suppress(FileNotFoundError):
-            remove(path.join(self.conf.storage, ".dbprepared"))
-
-    def partial_indexed(self, start: bool = True) -> None:
-        if start:
-            open(path.join(self.conf.storage, ".part.indexed"), "w").write("")
-            return
-        with contextlib.suppress(FileNotFoundError):
-            remove(path.join(self.conf.storage, ".part.indexed"))
-
-    @property
-    def is_db_prepared(self) -> bool:
-        return path.exists(path.join(self.conf.storage, ".dbprepared"))
-
-    @property
-    def is_indexed(self) -> bool:
-        return path.exists(path.join(self.conf.storage, ".indexed"))
-
-    @property
-    def is_partial_indexed(self) -> bool:
-        return path.exists(path.join(self.conf.storage, ".part.indexed"))
-
-    @staticmethod
-    def _batch_generator(
-        data: List[Any], batch_size: int
-    ) -> Generator[List[Any], None, None]:
-        for i in range(0, len(data), batch_size):
-            yield data[i : i + batch_size]
-
-
-class _CosineSimilarity(__BaseScoring):
+class TextScoring(BaseScoring):
     _contents: List[Content]
+    cosine_similarity: CosineSimilarity
+    fuzzy_match: FuzzyMatch
+    spell: SpellCheck
 
-    def search(self, keyword: str, threshold: float = 0.5) -> List[ScoringResult]:
-        st = time.time()
-        processed_key = keyword.strip().lower().split()
-        dictionary, tfidf, cosine = self._get_index()
-        key_vector = dictionary.doc2bow(processed_key)
-        key_vector_tfidf = tfidf[key_vector]
-        sims = cosine[key_vector_tfidf]
-
-        id_scores = {}
-        for i, sim in enumerate(sims):
-            sim = float(sim)
-            if sim >= threshold:
-                data = rep.get_processed_data_by_id(i + 1)
-                result = {
-                    "identifier": data.base_data.identifier,
-                    "content": data.base_data.content,
-                    "section": data.base_data.section,
-                    "similar": data.content,
-                    "score": sim,
-                }
-                if result["identifier"] in id_scores:
-                    if sim > id_scores[result["identifier"]]["score"]:
-                        id_scores[result["identifier"]] = result
-                else:
-                    id_scores[result["identifier"]] = result
-
-        results = [ScoringResult(**result) for result in list(id_scores.values())]
-        log.info(f"got {len(results)} similar contents in {time.time() - st} seconds.")
-        return sorted(results, key=lambda obj: obj.score, reverse=True)
-
-    def _create_index(
+    def __init__(
         self,
-    ) -> Tuple[corpora.Dictionary, models.TfidfModel, similarities.Similarity]:
-        st = time.time()
-        log.info("cosine similarity model started.")
-        if not self.is_db_prepared:
-            time.sleep(3)
-            return self._create_index()
-
-        self.indexed()
-        objects_generator = (str(i.content) for i in rep.get_all_processed_data())
-        objects_list = list(objects_generator)
-
-        dictionary = corpora.Dictionary((text.split() for text in objects_list))
-        corpus = [dictionary.doc2bow(text.split()) for text in objects_list]
-
-        tfidf = models.TfidfModel(corpus)
-
-        cosine = similarities.Similarity(
-            None, tfidf[corpus], num_features=len(dictionary)
-        )
-
-        tmp_dictionary_location = f"{self.conf.tmp_dictionary_location}_{uuid.uuid4()}"
-        tmp_model_location = f"{self.conf.tmp_model_location}_{uuid.uuid4()}"
-        tmp_cosine_index_location = (
-            f"{self.conf.tmp_cosine_index_location}_{uuid.uuid4()}"
-        )
-
-        dictionary.save(tmp_dictionary_location)
-        tfidf.save(tmp_model_location)
-        cosine.save(tmp_cosine_index_location)
-
-        copy2(tmp_dictionary_location, self.conf.dictionary_location)
-        copy2(tmp_model_location, self.conf.model_location)
-        copy2(tmp_cosine_index_location, self.conf.cosine_index_location)
-
-        remove(tmp_dictionary_location)
-        remove(tmp_model_location)
-        remove(tmp_cosine_index_location)
-
-        if self.is_partial_indexed:
-            self.indexed(False)
-            self.partial_indexed(False)
-        else:
-            self.partial_indexed()
-
-        log.info(f"cosine similarity model finished in {time.time() - st}")
-
-        return dictionary, tfidf, cosine
-
-    def _get_index(
-        self,
-    ) -> Tuple[corpora.Dictionary, models.TfidfModel, similarities.Similarity]:
-        try:
-            dictionary = corpora.Dictionary.load(self.conf.dictionary_location)
-            tfidf = models.TfidfModel.load(self.conf.model_location)
-            cosine = similarities.Similarity.load(self.conf.cosine_index_location)
-
-            return dictionary, tfidf, cosine
-        except FileNotFoundError:
-            if not self.is_indexed and self.is_db_prepared:
-                return self._create_index()
-            time.sleep(1)
-            return self._get_index()
-
-
-class _FuzzyMatch(__BaseScoring):
-    def search(
-        self, keyword: str, threshold: float = 0.5, normalize_threshold: bool = True
-    ) -> List[ScoringResult]:
-        if normalize_threshold and threshold < 0.7:
-            threshold += 0.35
-
-        st = time.time()
-        list_object = self._get_index()
-        id_scores = {}
-        for word in list_object:
-            sim = float(fuzz.ratio(word, keyword.strip().lower()) / 100)
-            if sim < 1:
-                sim -= 0.09
-
-            if sim >= threshold:
-                for data in rep.get_processed_data_by_content(word):
-                    result = {
-                        "identifier": data.base_data.identifier,
-                        "content": data.base_data.content,
-                        "section": data.base_data.section,
-                        "similar": data.content,
-                        "score": sim,
-                    }
-                    if result["identifier"] in id_scores:
-                        if sim > id_scores[result["identifier"]]["score"]:
-                            id_scores[result["identifier"]] = result
-                    else:
-                        id_scores[result["identifier"]] = result
-
-        results = [ScoringResult(**result) for result in list(id_scores.values())]
-        log.info(f"got {len(results)} similar contents in {time.time() - st} seconds.")
-        return sorted(results, key=lambda obj: obj.score, reverse=True)
-
-    def _create_index(self) -> List[str]:
-        log.info("fuzzy match model started.")
-        st = time.time()
-        if not self.is_db_prepared:
-            time.sleep(3)
-            return self._create_index()
-
-        self.indexed()
-        objects_generator = (
-            str(i.content)
-            for i in rep.get_all_processed_data()
-            if len(str(i.content).strip().split()) == 1
-        )
-        objects_list = list(objects_generator)
-
-        tmp_model = f"{self.conf.tmp_pickle_index_location}_{uuid.uuid4()}"
-        with open(tmp_model, "wb") as f:
-            pickle.dump(objects_list, f)
-            copy2(tmp_model, self.conf.pickle_index_location)
-            remove(tmp_model)
-
-        if self.is_partial_indexed:
-            self.indexed(False)
-            self.partial_indexed(False)
-        else:
-            self.partial_indexed()
-
-        log.info(f"fuzzy match model finished in {time.time() - st}")
-
-        return objects_list
-
-    def _get_index(self) -> List[str]:
-        try:
-            with open(self.conf.pickle_index_location, "rb") as f:
-                return pickle.load(f)
-        except FileNotFoundError:
-            if not self.is_indexed and self.is_db_prepared:
-                return self._create_index()
-            time.sleep(1)
-            return self._get_index()
-        except EOFError:
-            return []
-
-
-class TextScoring(__BaseScoring):
-    _contents: List[Content]
-    cosine_similarity: _CosineSimilarity
-    fuzzy_match: _FuzzyMatch
-
-    def __init__(self, collection_name: str, batch_length: Optional[int] = 500) -> None:
+        collection_name: str,
+        fuzz: bool = False,
+        spellcheck: bool = True,
+        batch_length: Optional[int] = 500,
+    ) -> None:
         super().__init__(collection_name, batch_length)
         self._contents = []
 
-        self.cosine_similarity = _CosineSimilarity(collection_name, batch_length)
-        self.fuzzy_match = _FuzzyMatch(collection_name, batch_length)
+        self.cosine_similarity = CosineSimilarity(collection_name, batch_length)
+        if fuzz:
+            self.fuzzy_match = FuzzyMatch(collection_name, batch_length)
 
-    def push_contents(self, contents: List[Content]) -> "TextScoring":
-        self._contents += contents
-        return self
-
-    def initialize(self, rebuild: bool = False) -> "TextScoring":
-        # sourcery skip: class-extract-method
-        rep.init_database(self.conf.sqlite_location, rebuild)
-        self.indexed()
-
-        if rebuild or not self._index_ready:
-            # init contents
-            Task(
-                target=self._prepare_contents,
-                args=(self._contents, rebuild),
-                name="<prepare contents>",
-            )
-
-            # init cosine similarity model
-            Task(
-                target=self.cosine_similarity._create_index,
-                name="<build cosine similarity model>",
-            )
-
-            # Init fuzzy match model
-            Task(
-                target=self.fuzzy_match._create_index, name="<build fuzzy match model>"
-            )
-
-        return self
-
-    def update(self, content: List[Content], force: bool = False) -> None:
-        if self.in_vector_update() and not force:
-            time.sleep(3)
-            return self.update(content)
-
-        self.vector_update(True)
-        Task(
-            target=self._prepare_contents,
-            args=(content, False),
-            name="<update contents>",
-        )
-        Task(
-            target=self.cosine_similarity._create_index,
-            name="<build cosine similarity model>",
-        )
-        Task(target=self.fuzzy_match._create_index, name="<build fuzzy match model>")
-        self.vector_update(False)
+        if spellcheck:
+            self.spell = SpellCheck(collection_name)
 
     def search(
-        self, keyword: str, threshold: float = 0.5, normalize_threshold: bool = True
-    ) -> List[ScoringResult]:
+        self, keyword: str, threshold: float = 0.5, spelling_correction: bool = True
+    ) -> List[ScoringContent]:
+        st = time.time()
+        if hasattr(self, "spell") and spelling_correction:
+            keyword = self.spell.correction(keyword)
+
         results = self.cosine_similarity.search(keyword, threshold)
-        if len(keyword.strip().split()) == 1:
-            results += self.fuzzy_match.search(keyword, threshold, normalize_threshold)
-        unique_results = []
-        seen_identifiers = set()
 
-        for result in results:
-            if result.identifier not in seen_identifiers:
-                unique_results.append(result)
-                seen_identifiers.add(result.identifier)
-
-        return sorted(unique_results, key=lambda obj: obj.score, reverse=True)
-
-    def _prepare_contents(self, contents: List[Content], many: bool = False) -> None:
-        log.info("prepare content started.")
-        self.db_prepared(False)
-
-        is_update = False
-        updated = []
-
-        st = time.time()
-        for contents_batch in self._batch_generator(contents, self.conf.batch_size):
-            if many:
-                bds = [
-                    dict(
-                        identifier=content.identifier,
-                        content=content.content,
-                        section=content.section,
-                    )
-                    for content in contents_batch
-                ]
-                rep.create_many_base_data(bds)
-            else:
-                for content in contents_batch:
-                    if data := rep.create_base_data(
-                        content.content, content.identifier, content.section
-                    ):
-                        is_update = True
-                        updated.append(data)
-
+        if hasattr(self, "fuzzy_match"):
+            for content in self.fuzzy_match.search(keyword, threshold):
+                if existing_content := next(
+                    (c for c in results if c.identifier == content.identifier),
+                    None,
+                ):
+                    if content.score > existing_content.score:
+                        existing_content.score = content.score
+                        existing_content.content = content.content
+                        existing_content.section = content.section
+                        existing_content.original = content.original
+                else:
+                    results.append(content)
+        results = sorted(results, key=lambda obj: obj.score, reverse=True)
         log.info(
-            f"total '{self.conf.collection}' {rep.count_total_base_data()} base data, finished in {round(time.time() - st, 3)} seconds."
+            f"got {len(results)} total similar contents with keyword '{keyword}' in {round(time.time() - st, 3)} seconds."
         )
+        return results
 
-        st = time.time()
-        if not is_update:
-            total_base_data = rep.count_total_base_data()
-            for offset in range(0, total_base_data, self.conf.batch_size):
-                base_data_batch = rep.get_all_base_data(
-                    offset=offset, size=self.conf.batch_size
-                )
+    def push_contents(self, contents: List[Content]) -> "TextScoring":
+        self._contents = contents
+        return self
 
-                if many:
-                    pcsd = []
-                    for data in base_data_batch:
-                        pcsd.append(
-                            dict(base_data=data, content=str(data.content).lower())
-                        )
-                        clear_content = re.sub(
-                            r"[^\w\s]", "", str(data.content).lower()
-                        )
-                        pcsd.append(dict(base_data=data, content=clear_content))
-                    rep.create_many_processed_data(pcsd)
-        else:
-            for data in updated:
-                content = str(data.content).lower()
-                rep.create_processed_data(base_data=data, content=content)
+    def initialize(self) -> "TextScoring":
+        self.cosine_similarity.create_index(self._contents)
+        if hasattr(self, "fuzzy_match"):
+            self.fuzzy_match.create_index(self._contents)
 
-                clear_content = re.sub(r"[^\w\s]", "", content)
-                rep.create_processed_data(base_data=data, content=clear_content)
+        if hasattr(self, "spell"):
+            self.spell.create_dictionary([i.content for i in self._contents])
 
-        log.info(
-            f"total '{self.conf.collection}' {rep.count_total_processed_data()} processed data, finished in {round(time.time() - st, 3)} seconds."
-        )
-        self.db_prepared()
+        return self
 
-    def vector_update(self, start: bool = True) -> None:
-        if start:
-            open(path.join(self.conf.storage, ".vector_update"), "w").write("")
-            return
-        with contextlib.suppress(FileNotFoundError):
-            remove(path.join(self.conf.storage, ".vector_update"))
+    def update(self, content: List[Content]) -> "TextScoring":
+        self.cosine_similarity.create_index(content, True)
+        if hasattr(self, "fuzzy_match"):
+            self.fuzzy_match.create_index(content, True)
 
-    def in_vector_update(self) -> bool:
-        return path.exists(path.join(self.conf.storage, ".vector_update"))
+        if hasattr(self, "spell"):
+            self.spell.create_dictionary([i.content for i in content], True)
+        return self
 
-    @property
-    def _index_ready(self) -> bool:
-        return (
-            path.exists(self.conf.sqlite_location)
-            and path.exists(self.conf.cosine_index_location)
-            and path.exists(self.conf.dictionary_location)
-            and path.exists(self.conf.model_location)
-            and path.exists(self.conf.pickle_index_location)
-        )
+    def add_spell_dictionary(self, dictionary: List[str]) -> "TextScoring":
+        if hasattr(self, "spell"):
+            self.spell.create_dictionary(dictionary, True)
+        return self
