@@ -108,7 +108,7 @@ class CosineSimilarity(BaseScoring):
         ]
     ]:
         result = None
-        with contextlib.suppress(FileNotFoundError):
+        with contextlib.suppress(FileNotFoundError, pickle.UnpicklingError):
             with open(self.conf.score_contents, "rb") as file:
                 scoring_content: List[ScoringContent] = pickle.load(file)
             dictionary = corpora.Dictionary.load(self.conf.dictionary_location)
