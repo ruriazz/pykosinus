@@ -1,5 +1,4 @@
 import contextlib
-import keyword
 import time
 from os import path, remove
 from typing import List

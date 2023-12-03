@@ -1,6 +1,5 @@
 import contextlib
 import pickle
-import re
 import time
 from copy import deepcopy
 from os import path, remove
@@ -8,7 +7,7 @@ from typing import List, Optional, Tuple
 
 from gensim import corpora, models, similarities
 
-from pykosinus import Constant, Content, ScoringContent, log
+from pykosinus import Content, ScoringContent, log
 from pykosinus.lib import BaseScoring
 
 
