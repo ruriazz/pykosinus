@@ -65,7 +65,7 @@ class FuzzyMatch(BaseScoring):
         self, waiting: bool = False, retry: int = 5
     ) -> Optional[List[ScoringContent]]:
         result: Optional[List[ScoringContent]] = None
-        with contextlib.suppress(FileNotFoundError):
+        with contextlib.suppress(FileNotFoundError, pickle.UnpicklingError):
             with open(self.conf.pickle_index_location, "rb") as file:
                 result = pickle.load(file)
 
