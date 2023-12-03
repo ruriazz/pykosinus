@@ -42,16 +42,12 @@ class TextScoring(BaseScoring):
 
         if hasattr(self, "fuzzy_match"):
             for content in self.fuzzy_match.search(keyword, threshold):
-                if existing_content := next(
-                    (c for c in results if c.identifier == content.identifier),
-                    None,
+                if not (
+                    _ := next(
+                        (c for c in results if c.identifier == content.identifier),
+                        None,
+                    )
                 ):
-                    if content.score > existing_content.score:
-                        existing_content.score = content.score
-                        existing_content.content = content.content
-                        existing_content.section = content.section
-                        existing_content.original = content.original
-                else:
                     results.append(content)
         results = sorted(results, key=lambda obj: obj.score, reverse=True)
         log.info(
