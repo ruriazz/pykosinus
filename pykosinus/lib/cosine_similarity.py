@@ -2,9 +2,9 @@ import contextlib
 import pickle
 import time
 from copy import deepcopy
-from os import path, remove
 from typing import List, Optional, Tuple
 
+import redis
 from gensim import corpora, models, similarities
 
 from pykosinus import Content, ScoringContent, log
@@ -24,11 +24,10 @@ class CosineSimilarity(BaseScoring):
         )
         return results
 
-    def _get_similarity(self, indexs, keyword, threshold, results):
-        scoring_content = indexs[0]
-        dictionary = indexs[1]
-        tfidf = indexs[2]
-        cosine = indexs[3]
+    def _get_similarity(self, indexs, keyword, threshold, results) -> None:
+        dictionary = indexs[0]
+        tfidf = indexs[1]
+        cosine = indexs[2]
 
         processed_key = keyword.strip().lower().split()
         key_vector = dictionary.doc2bow(processed_key)
@@ -38,22 +37,22 @@ class CosineSimilarity(BaseScoring):
         for i, sim in enumerate(sims):
             sim = float(sim)
             if sim >= threshold:
-                content = scoring_content[i]
-                content.score = sim
+                if content := self.get_scoring_content(i):
+                    content.score = sim
 
-                if existing_content := next(
-                    (c for c in results if c.identifier == content.identifier),
-                    None,
-                ):
-                    if content.score > existing_content.score:
-                        existing_content.score = content.score
-                        existing_content.content = content.content
-                        existing_content.section = content.section
-                        existing_content.original = content.original
-                else:
-                    results.append(content)
+                    if existing_content := next(
+                        (c for c in results if c.identifier == content.identifier),
+                        None,
+                    ):
+                        if content.score > existing_content.score:
+                            existing_content.score = content.score
+                            existing_content.content = content.content
+                            existing_content.section = content.section
+                            existing_content.original = content.original
+                    else:
+                        results.append(content)
 
-    def create_index(self, contents: List[Content], update: bool = False):
+    def create_index(self, contents: List[Content], update: bool = False) -> None:
         st = time.time()
         scoring_content = self.compile_content(contents)
 
@@ -61,15 +60,17 @@ class CosineSimilarity(BaseScoring):
             if not self.is_filling():
                 return log.warning("CosineSimilarity.create_index cancel for updating.")
 
-            if not (indexs := self.get_index(True, 10)):
+            if not (_ := self.get_index(True, 10)):
                 return log.warning("CosineSimilarity.create_index cancel for updating.")
 
-            _scoring_content = indexs[0]
+            _scoring_content = self.dump_all_scoring_content() or []
             for content in deepcopy(scoring_content):
                 if content not in _scoring_content:
                     _scoring_content.append(content)
             scoring_content = _scoring_content
+
         log.debug(f"total CosineSimilarity scoring content {len(scoring_content)}")
+
         objects_generator = (str(i.content) for i in scoring_content)
         objects_list = list(objects_generator)
         dictionary = corpora.Dictionary((text.split() for text in objects_list))
@@ -87,11 +88,13 @@ class CosineSimilarity(BaseScoring):
             return
 
         self.filling()
-        with open(self.conf.score_contents, "wb") as file:
-            pickle.dump(scoring_content, file)
-        dictionary.save(self.conf.dictionary_location)
-        tfidf.save(self.conf.model_location)
-        cosine.save(self.conf.cosine_index_location)
+        pipeline = self.conf.redis_client.pipeline()
+        pipeline.set(self.conf.dictionary_redis_key, pickle.dumps(dictionary))
+        pipeline.set(self.conf.model_redis_key, pickle.dumps(tfidf))
+        pipeline.set(self.conf.cosine_index_redis_key, pickle.dumps(cosine))
+
+        self.save_scoring_content(scoring_content, pipeline)
+        pipeline.execute()
         self.filling(True)
         log.debug(
             f"save CosineSimilarity model finished in {round(time.time() - st, 3)} seconds."
@@ -100,21 +103,24 @@ class CosineSimilarity(BaseScoring):
     def get_index(
         self, waiting: bool = False, retry: int = 5
     ) -> Optional[
-        Tuple[
-            List[ScoringContent],
-            corpora.Dictionary,
-            models.TfidfModel,
-            similarities.Similarity,
-        ]
+        Tuple[corpora.Dictionary, models.TfidfModel, similarities.Similarity]
     ]:
         result = None
         with contextlib.suppress(FileNotFoundError, pickle.UnpicklingError):
-            with open(self.conf.score_contents, "rb") as file:
-                scoring_content: List[ScoringContent] = pickle.load(file)
-            dictionary = corpora.Dictionary.load(self.conf.dictionary_location)
-            tfidf = models.TfidfModel.load(self.conf.model_location)
-            cosine = similarities.Similarity.load(self.conf.cosine_index_location)
-            result = (scoring_content, dictionary, tfidf, cosine)
+            dictionary = None
+            if data := self.conf.redis_client.get(self.conf.dictionary_redis_key):
+                dictionary = pickle.loads(data)
+
+            tfidf = None
+            if data := self.conf.redis_client.get(self.conf.model_redis_key):
+                tfidf = pickle.loads(data)
+
+            cosine = None
+            if data := self.conf.redis_client.get(self.conf.cosine_index_redis_key):
+                cosine = pickle.loads(data)
+
+            if cosine and tfidf and dictionary:
+                result = (dictionary, tfidf, cosine)
         if not result and waiting and retry > 0:
             time.sleep(1)
             return self.get_index(waiting, retry - 1)
@@ -124,16 +130,70 @@ class CosineSimilarity(BaseScoring):
             )
         return result
 
+    def compile_content(
+        self, contents: List[Content], include_whitespace: bool = True
+    ) -> List[ScoringContent]:
+        results = []
+        for content in contents:
+            if text := content.content.strip().lower():
+                sc = ScoringContent(
+                    identifier=content.identifier,
+                    original=content.content,
+                    content=text if include_whitespace else text.replace(" ", ""),
+                    section=content.section,
+                    score=0,
+                )
+                results.append(sc)
+        return results
+
+    def save_scoring_content(
+        self,
+        contents: List[ScoringContent],
+        pipeline: Optional[redis.client.Pipeline] = None,
+    ) -> None:
+        force_save = not pipeline
+        pipeline = pipeline or self.conf.redis_client.pipeline()
+
+        pipeline.set(
+            f"{self.conf.score_contents_redis_pattern}_master", pickle.dumps(contents)
+        )
+        for i, content in enumerate(contents):
+            key = f"{self.conf.score_contents_redis_pattern}.{i}"
+            pipeline.set(key, pickle.dumps(content))
+
+        if force_save:
+            pipeline.execute()
+
+    def dump_all_scoring_content(self) -> Optional[List[ScoringContent]]:
+        if data := self.conf.redis_client.get(
+            f"{self.conf.score_contents_redis_pattern}_master"
+        ):
+            return pickle.loads(data)
+
+    def get_scoring_content(self, index: int) -> Optional[ScoringContent]:
+        if data := self.conf.redis_client.get(
+            f"{self.conf.score_contents_redis_pattern}.{index}"
+        ):
+            with contextlib.suppress(Exception):
+                return pickle.loads(data)
+
     def filling(self, end: bool = False) -> None:
         if end:
-            with contextlib.suppress(FileNotFoundError):
-                remove(path.join(self.conf.storage, ":filling gensim:"))
+            self.conf.redis_client.delete(
+                f"{self.conf.collection_config_key}.filling.gensim"
+            )
             return
-        open(path.join(self.conf.storage, ":filling gensim:"), "wb").write(b"")
+        self.conf.redis_client.set(
+            f"{self.conf.collection_config_key}.filling.gensim",
+            ":filling gensim:",
+            ex=300,
+        )
 
     def is_filling(self, retry: int = 100) -> bool:
         while (
-            _ := path.exists(path.join(self.conf.storage, ":filling gensim:"))
+            _ := self.conf.redis_client.get(
+                f"{self.conf.collection_config_key}.filling.gensim"
+            )
             and retry > 0
         ):
             log.info("CosineSimilarity.create_index wait process to run ..")
