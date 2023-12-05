@@ -1,6 +1,4 @@
-import contextlib
 import time
-from os import path, remove
 from typing import List
 
 from spellchecker import SpellChecker
@@ -28,20 +26,22 @@ class SpellCheck(BaseScoring):
 
         return sentence
 
-    def _get_correction_string(self, st, sentence):
-        self._instance.word_frequency.load_text_file(self.conf.spellchecker_dictionary)
-        log.debug(
-            f"SpellCheck dictionary load finish in {round(time.time() - st, 3)} seconds."
-        )
-        corrected_sentence = []
-        for word in sentence.split():
-            corrected_word = self._instance.correction(word)
-            corrected_sentence.append(corrected_word)
-        corrected_string = " ".join(corrected_sentence)
-        if corrected_string != sentence:
-            log.info(
-                f"SpellCheck.correction succeeded in correcting sentence from '{sentence}' to '{corrected_string}'"
+    def _get_correction_string(self, st, sentence) -> str:
+        corrected_string = sentence
+        if words := self.get_exists_dictionary():
+            self._instance.word_frequency.load_words(words)
+            log.debug(
+                f"SpellCheck dictionary load finish in {round(time.time() - st, 3)} seconds."
             )
+            corrected_sentence = []
+            for word in sentence.split():
+                corrected_word = self._instance.correction(word)
+                corrected_sentence.append(corrected_word)
+            corrected_string = " ".join(corrected_sentence)
+            if corrected_string != sentence:
+                log.info(
+                    f"SpellCheck.correction succeeded in correcting sentence from '{sentence}' to '{corrected_string}'"
+                )
         return corrected_string
 
     def create_dictionary(self, dictionary: List[str], update: bool = False) -> None:
@@ -62,30 +62,37 @@ class SpellCheck(BaseScoring):
 
         st = time.time()
         self.filling()
-        with open(self.conf.spellchecker_dictionary, "w") as f:
-            f.write("\n".join(dictionaries))
-            f.close()
+        self.conf.redis_client.set(
+            self.conf.spell_dictionary_redis_key, " ".join(dictionaries)
+        )
         self.filling(True)
         log.debug(
             f"save SpellCheck dictionary finished in {round(time.time() - st, 3)} seconds."
         )
 
     def get_exists_dictionary(self, waiting: bool = False, retry: int = 5) -> List[str]:
-        if not path.exists(self.conf.spellchecker_dictionary) and waiting and retry > 0:
+        if (
+            not self.conf.redis_client.get(self.conf.spell_dictionary_redis_key)
+            and waiting
+            and retry > 0
+        ):
             time.sleep(1)
             return self.get_exists_dictionary(waiting, retry - 1)
         elif (
             waiting
             and retry <= 0
-            and not path.exists(self.conf.spellchecker_dictionary)
+            and not self.conf.redis_client.get(self.conf.spell_dictionary_redis_key)
         ):
             log.warning(
                 "SpellCheck.get_exists_dictionary was not executed because it waited too long."
             )
 
         try:
-            file_content = open(self.conf.spellchecker_dictionary, "r").read()
-            return file_content.split("\n")
+            if data := self.conf.redis_client.get(self.conf.spell_dictionary_redis_key):
+                return data.split()
+            raise Exception(
+                "SpellCheck.get_exists_dictionary failed to get master data."
+            )
         except Exception:
             log.warning(
                 "SpellCheck.get_exists_dictionary an error occurred because it failed to load the dictionary file."
@@ -94,22 +101,29 @@ class SpellCheck(BaseScoring):
 
     def filling(self, end: bool = False) -> None:
         if end:
-            with contextlib.suppress(FileNotFoundError):
-                remove(path.join(self.conf.storage, ":filling spell:"))
+            self.conf.redis_client.delete(
+                f"{self.conf.collection_config_key}.filling.spellchecker"
+            )
             return
-        open(path.join(self.conf.storage, ":filling spell:"), "wb").write(b"")
+        self.conf.redis_client.set(
+            f"{self.conf.collection_config_key}.filling.spellchecker",
+            ":filling spell:",
+            ex=300,
+        )
 
     def is_filling(self, retry: int = 100) -> bool:
         while (
-            _ := path.exists(path.join(self.conf.storage, ":filling spell:"))
+            _ := self.conf.redis_client.get(
+                f"{self.conf.collection_config_key}.filling.spellchecker"
+            )
             and retry > 0
         ):
-            log.info("SpellCheck.create_dictionary wait process to run ..")
+            log.info("SpellCheck.create_index wait process to run ..")
             retry -= 1
             time.sleep(1.5)
         if retry == 0:
             log.warning(
-                "SpellCheck.create_dictionary was not executed because it waited too long."
+                "SpellCheck.create_index was not executed because it waited too long."
             )
             return False
         return True
