@@ -53,7 +53,10 @@ class SpellCheck(BaseScoring):
         if update:
             if not self.is_filling():
                 return log.warning("SpellCheck.create_dictionary cancel for updating.")
-            dictionaries += self.get_exists_dictionary(True, 10)
+            exists_dictionaries = self.get_exists_dictionary(True, 10)
+            dictionaries += [
+                i.decode() for i in exists_dictionaries if isinstance(i, bytes)
+            ]
 
         log.debug(f"total SpellCheck dictionary {len(dictionaries)} words.")
         log.debug(
